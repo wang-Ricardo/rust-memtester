@@ -1,8 +1,6 @@
 # rust-memtester
 Reconstructed using Rust for memtester
 
-# GEMINI.md: memtester-gemini
-
 ## Project Overview
 
 This project is a multi-threaded memory tester written in Rust. It's designed to test RAM for faults by running various test patterns on allocated memory. The tool is highly configurable, allowing the user to specify the amount of memory to test, the number of CPU cores to use, the duration of the test, and the specific test patterns to run.
