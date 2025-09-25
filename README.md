@@ -73,4 +73,4 @@ The program accepts several command-line arguments to control its behavior. Here
     *   `libc`: For interacting with the underlying C library, specifically for `mlock` and `munlock`.
     *   `sysinfo`: For getting system information, such as total memory.
     *   `rand`: For generating random numbers for some of the tests.
-*   **Testing:** The `src/tests.rs` file contains the memory test patterns. It seems that new tests can be added by defining a new `TestType`, adding a new `Test` struct to the `TESTS` array, and implementing the test logic in the `run_test` function.
+
