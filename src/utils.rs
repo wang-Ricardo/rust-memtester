@@ -10,7 +10,7 @@ use std::process;
 pub struct Args {
     // -m 或 --memory 选项，指定要测试的内存大小
     #[clap(short = 'm', long = "memory", value_parser = parse_memory_size,
-            help = "Memory size to test, Default unit is MB(default: total memory - 4GB)")]
+            help = "Memory size to test, Default unit is MB(default: total memory - 8GB)")]
     mem_to_test: Option<u64>,
 
     // -l 或 --loops 选项，指定测试循环次数
@@ -30,8 +30,8 @@ pub struct Args {
 
     // -p 或 --pattern 选项，指定测试模式
     #[clap(short = 'p', long = "pattern", value_parser = parse_pattern,
-            default_value = "0xff",
-            help = "Test pattern (supports hex like 0xff)")]
+            default_value = "0xfffff",
+            help = "Test pattern (supports hex like 0xfffff)")]
     pattern: Option<usize>,
 
     #[clap(short = 'L', long = "log-path",
@@ -47,8 +47,8 @@ fn get_default_memory_size() -> usize {
     // 获取空闲内存（字节）
     let free_memory = system.get_free_memory() * 1024; // sysinfo返回KB，转换为字节
 
-    // 保留4GB给系统（4 * 1024 * 1024 * 1024 字节）
-    let reserved_memory = 4 * 1024 * 1024 * 1024u64;
+    // 保留8GB给系统（8 * 1024 * 1024 * 1024 字节）
+    let reserved_memory = 8 * 1024 * 1024 * 1024u64;
 
     // 计算可用内存，确保不会小于1GB
     let available_memory = if free_memory > reserved_memory {
@@ -63,13 +63,13 @@ fn get_default_memory_size() -> usize {
     let final_memory = available_memory.max(min_memory);
 
 
-    println!("System memory info:");
-    println!("  Total memory: {:.2} GB", 
-             system.get_total_memory() as f64 / (1024.0 * 1024.0));
-    println!("  Free memory: {:.2} GB", 
-             free_memory as f64 / (1024.0 * 1024.0 * 1024.0));
-    println!("  Available for testing: {:.2} GB", 
-             final_memory as f64 / (1024.0 * 1024.0 * 1024.0));
+    // println!("System memory info:");
+    // println!("  Total memory: {:.2} GB", 
+    //          system.get_total_memory() as f64 / (1024.0 * 1024.0));
+    // println!("  Free memory: {:.2} GB", 
+    //          free_memory as f64 / (1024.0 * 1024.0 * 1024.0));
+    // println!("  Available for testing: {:.2} GB", 
+    //          final_memory as f64 / (1024.0 * 1024.0 * 1024.0));
 
     final_memory as usize
 }
@@ -133,7 +133,7 @@ pub fn usage(e: &String) -> ! {
     eprintln!("Error: {}", e);
     eprintln!();
     eprintln!("Usage examples:");
-    eprintln!("  # Test with default memory (free - 4GB) for 30 minutes");
+    eprintln!("  # Test with default memory (total - 4GB) for 30 minutes");
     eprintln!("  cargo run -- --time 30");
     eprintln!();
     eprintln!("  # Test 1GB memory for 10 loops");

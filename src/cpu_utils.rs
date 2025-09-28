@@ -1,5 +1,5 @@
 use crate::logger;
-use libc;
+use core_affinity;
 use num_cpus;
 
 pub fn calculate_core_usage(requested_cores: Option<usize>) -> Vec<usize> {
@@ -55,24 +55,12 @@ pub fn calculate_core_usage(requested_cores: Option<usize>) -> Vec<usize> {
 /// # Returns
 /// `true` on success, `false` on failure.
 #[allow(dead_code)]
+#[allow(dead_code)]
 pub fn bind_thread_to_core(core_id: usize) -> bool {
-    unsafe {
-        // Create an empty cpu_set_t.
-        let mut cpu_set = std::mem::zeroed::<libc::cpu_set_t>();
-        libc::CPU_ZERO(&mut cpu_set);
-        // Add the specified core ID to the set.
-        libc::CPU_SET(core_id, &mut cpu_set);
-
-        // Get the current thread's ID.
-        let thread = libc::pthread_self();
-
-        // Set the thread affinity.
-        let result = libc::pthread_setaffinity_np(
-            thread,
-            std::mem::size_of::<libc::cpu_set_t>(),
-            &cpu_set,
-        );
-
-        result == 0
+    if let Some(core_ids) = core_affinity::get_core_ids() {
+        if let Some(core) = core_ids.into_iter().find(|c| c.id == core_id) {
+            return core_affinity::set_for_current(core);
+        }
     }
+    false
 }

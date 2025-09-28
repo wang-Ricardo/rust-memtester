@@ -151,6 +151,10 @@ impl EccMonitor {
         
         logger::log_debug(&format!("Parsing DIMM label: '{}'", label));
 
+        if let Some(location) = self.parse_s_m_c_dimm_format(label) {
+            return Some(location);
+        }
+
         // 尝试不同的解析模式
         if let Some(location) = self.parse_cpu_dimm_format(label) {
             return Some(location);
@@ -165,10 +169,6 @@ impl EccMonitor {
         }
 
         if let Some(location) = self.parse_p_dimm_format(label) {
-            return Some(location);
-        }
-
-        if let Some(location) = self.parse_s_m_c_dimm_format(label) {
             return Some(location);
         }
 
