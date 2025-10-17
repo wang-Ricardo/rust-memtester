@@ -51,35 +51,14 @@ mod constants {
 }
 use self::constants::*;
 
-#[derive(Debug)]
-#[warn(dead_code)]
-pub enum TestType {
-    // StuckAddress,
-    RandomValue,
-    XorComparison,
-    SubComparison,
-    MulComparison,
-    DivComparison,
-    OrComparison,
-    AndComparison,
-    SeqIncComparison,
-    SolidBitsComparison,
-    BlockSeqComparison,
-    CheckerboardComparison,
-    BitSpreadComparison,
-    BitFlipComparison,
-    Walkbits1Comparison,
-    Walkbits0Comparison,
-    Bit8WideRandom,
-    Bit16WideRandom,
-}
+// 直接的函数指针类型定义
+type TestFn = fn(&mut [u64]) -> Result<(), TestError>;
 
-// 2. Test 结构体存储 enum 变体
-#[warn(unused_imports)]
+// 简化的 Test 结构体：直接包含函数指针
 pub struct Test {
     pub name: &'static str,
-    pub test_type: TestType,
     pub mask: u64,
+    pub test_fn: TestFn,  // 直接存储函数指针，无需中间层
 }
 
 // 定义测试掩码常量
@@ -108,29 +87,25 @@ pub const MASK_16BIT_WIDE_RANDOM: u64 = 1 << 16;
 // pub const TEST_MSCAN: u64 = 1 << 21;
 // pub const TEST_ROWHAMMER: u64 = 1 << 22;
 
+// 直接映射：名称 + 掩码 + 函数指针，一目了然
 pub static TESTS: &[Test] = &[
-    // Test { name: "Stuck Address", test_type: TestType::StuckAddress, mask: MASK_STUCK_ADDRESS },
-    Test { name: "Random Value", test_type: TestType::RandomValue, mask: MASK_RANDOM_VALUE },
-    Test { name: "Compare XOR", test_type: TestType::XorComparison, mask: MASK_XOR_COMPARISON },
-    Test { name: "Compare SUB", test_type: TestType::SubComparison, mask: MASK_SUB_COMPARISON },
-    Test { name: "Compare MUL", test_type: TestType::MulComparison, mask: MASK_MUL_COMPARISON },
-    Test { name: "Compare DIV", test_type: TestType::DivComparison, mask: MASK_DIV_COMPARISON },
-    Test { name: "Compare OR", test_type: TestType::OrComparison, mask: MASK_OR_COMPARISON },
-    Test { name: "Compare AND", test_type: TestType::AndComparison, mask: MASK_AND_COMPARISON },
-    Test { name: "Compare SEQINC", test_type: TestType::SeqIncComparison, mask: MASK_SEQINC_COMPARISON },
-    Test { name: "Solid Bits", test_type: TestType::SolidBitsComparison, mask: MASK_SOLIDBITS_COMPARISON },
-    Test { name: "Block Sequential", test_type: TestType::BlockSeqComparison, mask: MASK_BLOCKSEQ_COMPARISON  },
-    Test { name: "Checkerboard", test_type: TestType::CheckerboardComparison, mask: MASK_CHECKERBOARD_COMPARISON },
-    Test { name: "Bit Spread", test_type: TestType::BitSpreadComparison, mask: MASK_BITSPREAD_COMPARISON },
-    Test { name: "Bit Flip", test_type: TestType::BitFlipComparison, mask: MASK_BITFLIP_COMPARISON },
-    Test { name: "Walking Ones", test_type: TestType::Walkbits1Comparison, mask: MASK_WALKBITS1_COMPARISON },
-    Test { name: "Walking Zeros", test_type: TestType::Walkbits0Comparison, mask: MASK_WALKBITS0_COMPARISON },
-    Test { name: "8-bit Wide", test_type: TestType::Bit8WideRandom, mask: MASK_8BIT_WIDE_RANDOM },
-    Test { name: "16-bit Wide", test_type: TestType::Bit16WideRandom, mask: MASK_16BIT_WIDE_RANDOM },
-    // Test { name: "March Algorithm", test_type: TestType::XorComparison, mask: MASK_XOR_COMPARISON },
-    // Test { name: "Butterfly Algorithm", test_type: TestType::XorComparison, mask: MASK_XOR_COMPARISON },
-
-    // ...
+    Test { name: "Random Value",     mask: MASK_RANDOM_VALUE,             test_fn: test_random_value },
+    Test { name: "Compare XOR",      mask: MASK_XOR_COMPARISON,           test_fn: test_xor_comparison },
+    Test { name: "Compare SUB",      mask: MASK_SUB_COMPARISON,           test_fn: test_sub_comparison },
+    Test { name: "Compare MUL",      mask: MASK_MUL_COMPARISON,           test_fn: test_mul_comparison },
+    Test { name: "Compare DIV",      mask: MASK_DIV_COMPARISON,           test_fn: test_div_comparison },
+    Test { name: "Compare OR",       mask: MASK_OR_COMPARISON,            test_fn: test_or_comparison },
+    Test { name: "Compare AND",      mask: MASK_AND_COMPARISON,           test_fn: test_and_comparison },
+    Test { name: "Compare SEQINC",   mask: MASK_SEQINC_COMPARISON,        test_fn: test_seqinc_comparison },
+    Test { name: "Solid Bits",       mask: MASK_SOLIDBITS_COMPARISON,     test_fn: test_solidbits_comparison },
+    Test { name: "Block Sequential", mask: MASK_BLOCKSEQ_COMPARISON,      test_fn: test_blockseq_comparison },
+    Test { name: "Checkerboard",     mask: MASK_CHECKERBOARD_COMPARISON,  test_fn: test_checkerboard_comparison },
+    Test { name: "Bit Spread",       mask: MASK_BITSPREAD_COMPARISON,     test_fn: test_bitspread_comparison },
+    Test { name: "Bit Flip",         mask: MASK_BITFLIP_COMPARISON,       test_fn: test_bitflip_comparison },
+    Test { name: "Walking Ones",     mask: MASK_WALKBITS1_COMPARISON,     test_fn: test_walkbits1_comparison },
+    Test { name: "Walking Zeros",    mask: MASK_WALKBITS0_COMPARISON,     test_fn: test_walkbits0_comparison },
+    Test { name: "8-bit Wide",       mask: MASK_8BIT_WIDE_RANDOM,         test_fn: test_8bit_wide_random },
+    Test { name: "16-bit Wide",      mask: MASK_16BIT_WIDE_RANDOM,        test_fn: test_16bit_wide_random },
 ];
 
 pub fn print_test_mask_help(){
@@ -146,29 +121,10 @@ pub fn print_test_mask_help(){
     println!("Use logical OR to combine patterns: 0x{:08X}", mask)
 }
 
-// 4. 统一、安全的测试执行入口
+// 极简的测试执行入口：直接调用函数指针，无需 match
+#[inline]
 pub fn run_test(test: &Test, memory_block: &mut [u64]) -> Result<(), TestError> {
-    match test.test_type {
-        // 需要单个缓冲区的测试，直接调用
-        // TestType::StuckAddress => test_stuck_address(memory_block),
-        TestType::RandomValue => test_random_value(memory_block),
-        TestType::XorComparison => test_xor_comparison(memory_block),
-        TestType::SubComparison => test_sub_comparison(memory_block),
-        TestType::MulComparison => test_mul_comparison(memory_block),
-        TestType::DivComparison => test_div_comparison(memory_block),
-        TestType::OrComparison => test_or_comparison(memory_block),
-        TestType::AndComparison => test_and_comparison(memory_block),
-        TestType::SeqIncComparison => test_seqinc_comparison(memory_block),
-        TestType::SolidBitsComparison => test_solidbits_comparison(memory_block),
-        TestType::BlockSeqComparison => test_blockseq_comparison(memory_block),
-        TestType::CheckerboardComparison => test_checkerboard_comparison(memory_block),
-        TestType::BitSpreadComparison => test_bitspread_comparison(memory_block),
-        TestType::BitFlipComparison => test_bitflip_comparison(memory_block),
-        TestType::Walkbits1Comparison => test_walkbits1_comparison(memory_block),
-        TestType::Walkbits0Comparison => test_walkbits0_comparison(memory_block),
-        TestType::Bit8WideRandom => test_8bit_wide_random(memory_block),
-        TestType::Bit16WideRandom => test_16bit_wide_random(memory_block)
-    }
+    (test.test_fn)(memory_block)
 }
 
 // 只需要一个缓冲区，因为是测试地址而不是数据
@@ -210,6 +166,18 @@ pub fn test_stuck_address(buf: &mut [u64]) -> Result<(), TestError> {
 // 3. Result类型强制错误处理
 // 4. 迭代器链式调用，代码更简洁
 
+// 辅助函数：将内存块分为两个相等的缓冲区
+// 减少代码重复，每个测试函数都需要这个操作
+fn split_buffer(memory_block: &mut [u64]) -> Result<(&mut [u64], &mut [u64]), TestError> {
+    let len = memory_block.len();
+    if len < 2 {
+        return Err(TestError("Memory block too small for two-buffer test".to_string()));
+    }
+    
+    let mid = len / 2;
+    Ok(memory_block.split_at_mut(mid))
+}
+
 // &[u64] 是u64切片的不可变引用，包含指针和长度信息
 // 【C等价】const uint64_t* buf_a, size_t len_a, const uint64_t* buf_b, size_t len_b
 // 但Rust的切片自动包含长度，更安全
@@ -221,33 +189,35 @@ fn compare_regions(buf_a: &[u64], buf_b: &[u64]) -> Result<(), TestError> {
     }
 
     // 慢速路径：详细错误报告，使用函数式编程风格
-    let errors = buf_a.iter()
-        .zip(buf_b.iter())
-        .enumerate()
-        .try_fold(0usize, |mut error_count, (i, (a, b))| {
-            if a != b {
-                // 格式化字符串：{a:#018x} 表示16进制，18位宽，前缀0x
-                // 【C等价】printf("FAILURE: 0x%016lx != 0x%016lx at offset 0x%lx\n", *a, *b, i * 8);
-                logger::log_error(&format!("FAILURE: {a:#018x} != {b:#018x} at offset {:#x}", i * 8));
-                error_count += 1;
-            }
+    // 性能优化：只报告前10个错误，避免在大内存测试时产生海量日志
+    const MAX_REPORTED_ERRORS: usize = 10;
+    let mut error_count = 0usize;
+    let mut reported_errors = 0usize;
+    
+    for (i, (a, b)) in buf_a.iter().zip(buf_b.iter()).enumerate() {
+        if a != b {
+            error_count += 1;
             
-            Ok(error_count)
-        })?;
+            // 只报告前几个错误的详细信息
+            if reported_errors < MAX_REPORTED_ERRORS {
+                logger::log_error(&format!("FAILURE: {a:#018x} != {b:#018x} at offset {:#x}", i * 8));
+                reported_errors += 1;
+            }
+        }
+    }
+    
+    // 如果有更多错误，打印总数
+    if error_count > MAX_REPORTED_ERRORS {
+        logger::log_error(&format!("... and {} more errors (total: {} errors)", 
+            error_count - MAX_REPORTED_ERRORS, error_count));
+    }
 
     // 返回错误，包含错误计数
-    // 【C等价】return errors;
-    Err(TestError(format!("{} errors found", errors)))
+    Err(TestError(format!("{} errors found", error_count)))
 }
 
 pub fn test_random_value(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     // 使用线程本地RNG，避免全局状态竞争
     // 【C对比】C的rand()不是线程安全的，需要额外同步
@@ -267,13 +237,7 @@ pub fn test_random_value(memory_block: &mut [u64]) -> Result<(), TestError> {
 
 // XOR比较测试：测试异或运算的一致性
 pub fn test_xor_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     let mut rng = rand::thread_rng();
     let q: u64 = rng.gen();
@@ -292,13 +256,7 @@ pub fn test_xor_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
 
 // 减法比较测试：测试减法运算的一致性
 pub fn test_sub_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     let mut rng = rand::thread_rng();
     let q: u64 = rng.gen();
@@ -318,13 +276,7 @@ pub fn test_sub_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
 }
 
 pub fn test_mul_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     let mut rng = rand::thread_rng();
     let q: u64 = rng.gen();
@@ -343,14 +295,7 @@ pub fn test_mul_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
 
 // 除法比较测试：测试除法运算的一致性
 pub fn test_div_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     let mut rng = rand::thread_rng();
     let mut q: u64 = rng.gen();
@@ -374,13 +319,7 @@ pub fn test_div_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
 }
 
 pub fn test_or_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     let mut rng = rand::thread_rng();
     let q: u64 = rng.gen();
@@ -394,13 +333,7 @@ pub fn test_or_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
 }
 
 pub fn test_and_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     let mut rng = rand::thread_rng();
     let q: u64 = rng.gen();
@@ -414,13 +347,7 @@ pub fn test_and_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
 }
 
 pub fn test_seqinc_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     let mut rng = rand::thread_rng();
     let q: u64 = rng.gen();
@@ -437,13 +364,7 @@ pub fn test_seqinc_comparison(memory_block: &mut [u64]) -> Result<(), TestError>
 
 // 固定位测试：测试每个位位置的内存一致性
 pub fn test_solidbits_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     // 64轮测试，交替使用全1和全0模式
     (0..64).try_for_each(|j| {
@@ -464,13 +385,7 @@ pub fn test_solidbits_comparison(memory_block: &mut [u64]) -> Result<(), TestErr
 
 // 棋盘测试：交替使用两种模式，实现真正的棋盘效果
 pub fn test_checkerboard_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     // 进行64轮测试，每轮使用不同的棋盘模式
     (0..64).try_for_each(|j| {
@@ -491,13 +406,7 @@ pub fn test_checkerboard_comparison(memory_block: &mut [u64]) -> Result<(), Test
 }
 
 pub fn test_blockseq_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     for j in 0..256 {
         // Replicate the UL_BYTE(j) macro from C by repeating the byte across the u64
@@ -514,13 +423,7 @@ pub fn test_blockseq_comparison(memory_block: &mut [u64]) -> Result<(), TestErro
 }
 
 pub fn test_walkbits0_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     // 走动0测试：使用函数式编程生成双向扫描模式
     let pattern_generator = |ucount: usize| -> u64 {
@@ -548,13 +451,7 @@ pub fn test_walkbits0_comparison(memory_block: &mut [u64]) -> Result<(), TestErr
 }
 
 pub fn test_walkbits1_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     // 走动1测试：使用函数式编程生成双向扫描模式
     let pattern_generator = |ucount: usize| -> u64 {
@@ -582,13 +479,7 @@ pub fn test_walkbits1_comparison(memory_block: &mut [u64]) -> Result<(), TestErr
 }
 
 pub fn test_bitspread_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     // 位扩散测试：使用函数式编程简化模式生成
     let pattern_generator = |j: usize, i: usize| -> u64 {
@@ -627,13 +518,7 @@ pub fn test_bitspread_comparison(memory_block: &mut [u64]) -> Result<(), TestErr
 }
 
 pub fn test_bitflip_comparison(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     // 位翻转测试：对每个位位置进行多轮测试
     for j in 0..TEST_UL_LEN {
@@ -662,14 +547,9 @@ pub fn test_bitflip_comparison(memory_block: &mut [u64]) -> Result<(), TestError
 // 8位宽随机写入测试
 // 使用8位宽度进行随机数据写入测试，检测窄数据路径的完整性
 // 8位宽测试能发现数据总线宽度相关的问题和字节选通信号故障
+// 关键：必须逐字节写入，不能使用 memcpy 等批量操作，否则测试会失去意义
 pub fn test_8bit_wide_random(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     let mut rng = rand::thread_rng();
 
@@ -687,19 +567,25 @@ pub fn test_8bit_wide_random(memory_block: &mut [u64]) -> Result<(), TestError> 
                 (&mut buf_a[i], &mut buf_b[i])
             };
             
-            // 设置参考值
+            // 设置参考值（完整的 u64 写入）
             *ref_buf = random_val;
             
-            // 按8位宽度写入数据
+            // 关键：逐字节写入，模拟 C 源码的行为
+            // 不能使用 copy_from_slice，因为编译器可能优化为 memcpy
+            // 必须显式地逐字节访问内存，以测试 8bit 数据总线
             let bytes = random_val.to_le_bytes();
-            let write_ptr = write_buf as *mut u64 as *mut u8;
+            let write_bytes = unsafe {
+                std::slice::from_raw_parts_mut(write_buf as *mut u64 as *mut u8, 8)
+            };
             
-            unsafe {
-                bytes.iter().enumerate().try_for_each(|(b, &byte_val)| {
-                    *write_ptr.add(b) = byte_val;
-                    Ok(())
-                })
+            // 显式逐字节写入循环，使用 volatile_write 防止编译器优化
+            for byte_idx in 0..8 {
+                unsafe {
+                    std::ptr::write_volatile(&mut write_bytes[byte_idx], bytes[byte_idx]);
+                }
             }
+            
+            Ok(())
         })?;
         
         // 使用优化的比较函数
@@ -710,14 +596,9 @@ pub fn test_8bit_wide_random(memory_block: &mut [u64]) -> Result<(), TestError> 
 // 16位宽随机写入测试
 // 使用16位宽度进行随机数据写入测试，检测半字数据路径的完整性
 // 16位宽测试能发现字选通信号和半字对齐相关的问题
+// 关键：必须逐字（16bit）写入，不能使用批量操作，否则测试会失去意义
 pub fn test_16bit_wide_random(memory_block: &mut [u64]) -> Result<(), TestError> {
-    let len = memory_block.len();
-    if len < 2 {
-        return Err(TestError("Memory block too small for two-buffer test".to_string()));
-    }
-    
-    let mid = len / 2;
-    let (buf_a, buf_b) = memory_block.split_at_mut(mid);
+    let (buf_a, buf_b) = split_buffer(memory_block)?;
 
     let mut rng = rand::thread_rng();
 
@@ -734,10 +615,11 @@ pub fn test_16bit_wide_random(memory_block: &mut [u64]) -> Result<(), TestError>
                 (&mut buf_a[i], &mut buf_b[i])
             };
             
-            // 设置参考值
+            // 设置参考值（完整的 u64 写入）
             *ref_buf = random_val;
             
-            // 按16位宽度写入数据
+            // 关键：逐字（16bit）写入，模拟 C 源码的行为
+            // 必须显式地逐字访问内存，以测试 16bit 数据总线
             let words = [
                 (random_val & 0xFFFF) as u16,
                 ((random_val >> 16) & 0xFFFF) as u16,
@@ -745,14 +627,18 @@ pub fn test_16bit_wide_random(memory_block: &mut [u64]) -> Result<(), TestError>
                 ((random_val >> 48) & 0xFFFF) as u16,
             ];
             
-            let write_ptr = write_buf as *mut u64 as *mut u16;
+            let write_words = unsafe {
+                std::slice::from_raw_parts_mut(write_buf as *mut u64 as *mut u16, 4)
+            };
             
-            unsafe {
-                words.iter().enumerate().try_for_each(|(w, &word_val)| {
-                    *write_ptr.add(w) = word_val;
-                    Ok(())
-                })
+            // 显式逐字写入循环，使用 volatile_write 防止编译器优化
+            for word_idx in 0..4 {
+                unsafe {
+                    std::ptr::write_volatile(&mut write_words[word_idx], words[word_idx]);
+                }
             }
+            
+            Ok(())
         })?;
         
         // 使用优化的比较函数

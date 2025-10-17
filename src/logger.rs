@@ -12,7 +12,7 @@ use std::fs::{self, OpenOptions};   // 文件操作，类似 C 的 fopen
 use std::io::{self, Write};         // 输入输出和写入 trait，类似 C 的 stdio.h
 use std::path::Path;                // 路径处理
 use std::sync::{Arc, Mutex};        // 线程安全的引用计数和互斥锁，类似 C 的 pthread_mutex_t
-use std::time::{SystemTime, UNIX_EPOCH}; // 时间处理，类似 C 的 time.h
+use chrono::Local;                  // chrono 时间库，更简洁的时间处理
 
 // 日志级别枚举
 // 在 C 中可能写成：enum LogLevel { DEBUG, INFO, WARN, ERROR, SUCCESS };
@@ -103,59 +103,11 @@ impl Logger {
     }
 
     // 获取当前时间戳字符串 (私有方法，类似 C 中的 static 函数)
+    // 使用 chrono 库简化时间处理，替代手动计算
     fn get_timestamp() -> String {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)      // 获取从 Unix 纪元开始的时间
-            .unwrap_or_default();            // 如果失败就使用默认值，类似 C 中的错误检查
-        let secs = now.as_secs();
-        
-        // 将 Unix 时间戳转换为本地时间
-        let datetime = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
-        let local_time = datetime.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-        
-        // 计算年月日时分秒 (简化版本，假设为 UTC+8)
-        let total_days = local_time / 86400 + 8 * 3600 / 86400; // 加上时区偏移
-        let days_since_epoch = total_days;
-        let seconds_today = (local_time + 8 * 3600) % 86400;
-        
-        // 计算年份 (简化算法)
-        let mut year = 1970;
-        let mut remaining_days = days_since_epoch;
-        
-        loop {
-            let days_in_year = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 366 } else { 365 };
-            if remaining_days < days_in_year {
-                break;
-            }
-            remaining_days -= days_in_year;
-            year += 1;
-        }
-        
-        // 计算月份和日期
-        let days_in_months = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
-            [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        } else {
-            [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        };
-        
-        let mut month = 1;
-        let mut day_of_month = remaining_days + 1;
-        
-        for &days_in_month in &days_in_months {
-            if day_of_month <= days_in_month {
-                break;
-            }
-            day_of_month -= days_in_month;
-            month += 1;
-        }
-        
-        // 计算时分秒
-        let hour = seconds_today / 3600;
-        let minute = (seconds_today % 3600) / 60;
-        let second = seconds_today % 60;
-        
-        // 格式化为 [YYYY-MM-DD HH:MM:SS] 格式
-        format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day_of_month, hour, minute, second)
+        // Local::now() 获取当前本地时间，自动处理时区
+        // format() 格式化时间字符串，类似 C 的 strftime
+        Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
     }
 
     // 记录日志的核心函数，类似 C 中的 log 函数

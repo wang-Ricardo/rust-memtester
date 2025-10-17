@@ -32,6 +32,17 @@ mod ecc;
 mod cpu_utils;
 mod tests;
 
+// 辅助函数：执行ECC检查（避免代码重复）
+fn check_ecc_errors(ecc_monitor: &Arc<Mutex<ecc::EccMonitor>>) {
+    if let Ok(mut monitor) = ecc_monitor.lock() {
+        if let Err(e) = monitor.check_ecc_errors() {
+            logger::log_error(&format!("ECC check failed: {}", e));
+        }
+    } else {
+        logger::log_error("Could not acquire lock on EccMonitor for ECC check.");
+    }
+}
+
 // ================================================================================================
 // 同步worker线程函数 - 所有线程同步执行相同的测试pattern
 // ================================================================================================
@@ -81,13 +92,7 @@ fn sync_worker_thread(
     let wait_result = start_barrier.wait();
     if wait_result.is_leader() {
         pattern_failure_counter.store(0, Ordering::Relaxed);
-        if let Ok(mut monitor) = ecc_monitor.lock() {
-            if let Err(e) = monitor.check_ecc_errors() {
-                logger::log_warn(&format!("Initial ECC check failed: {}", e));
-            }
-        } else {
-            logger::log_error("Could not acquire lock on EccMonitor for initial check.");
-        }
+        check_ecc_errors(&ecc_monitor);
     }
     
     let u64_slice = memory_block.as_mut_slice_u64();
@@ -114,13 +119,7 @@ fn sync_worker_thread(
             log_info_fmt!("   {:20}: {}", String::from("Stuck Address"), result);
 
             // 领头线程也在这里执行ECC检查
-            if let Ok(mut monitor) = ecc_monitor.lock() {
-                if let Err(e) = monitor.check_ecc_errors() {
-                    logger::log_error(&format!("ECC check failed: {}", e));
-                }
-            } else {
-                logger::log_error("Could not acquire lock on EccMonitor for pattern check.");
-            }
+            check_ecc_errors(&ecc_monitor);
         }
 
         u64_slice.fill(255u64);
@@ -146,13 +145,7 @@ fn sync_worker_thread(
                     log_info_fmt!("   {:20}: {}", test.name, result);
 
                     // 领头线程也在这里执行ECC检查
-                    if let Ok(mut monitor) = ecc_monitor.lock() {
-                        if let Err(e) = monitor.check_ecc_errors() {
-                            logger::log_error(&format!("ECC check failed: {}", e));
-                        }
-                    } else {
-                        logger::log_error("Could not acquire lock on EccMonitor for pattern check.");
-                    }
+                    check_ecc_errors(&ecc_monitor);
                 }
             }
         }
@@ -184,7 +177,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // 初始化优化后的日志系统
     // -L参数是目录路径，日志文件名固定为memtester.log
-    let log_dir = log_path.as_deref().unwrap_or("/var/log/cnit/");
+    let log_dir = log_path.as_deref().unwrap_or("/var/log/");
     let log_file_path = format!("{}/memtester.log", log_dir.trim_end_matches('/'));
     
     if let Err(e) = logger::init_logger(Some(&log_file_path)) {
@@ -194,27 +187,18 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     log_info_fmt!("Log path: {}", log_file_path);
 
-    // 检查 loops 和 time_limit 的冲突
-    let real_loops = match (loops != 1, time_limit_minutes.is_some()) {
-        (true, true) => {
-            return Err("Error: It is not possible to specify both the loop count (-l / --loops) and the time limit (-t / --time) parameters simultaneously.".into());
-        },
-        (false, true) => {
-            // 只有时间参数，忽略默认的 loops=1
-            log_info_fmt!("Use the time limit mode and ignore the loop count parameter");
-            log_info_fmt!("Time limit: {} seconds", time_limit_minutes.map(|minutes| (minutes * 60.0) as u64).unwrap_or(0));
-            0
-        },
-        (true, false) => {
-            // 只有 loops 参数
-            log_info_fmt!("Use the loop count mode: {} times", loops);
-            loops
-        },
-        (false, false) => {
-            // 都没有指定，使用默认的 loops=1
-            log_info_fmt!("Use the default loop count mode: 1 time");
-            1
-        }
+    // 检查 loops 和 time_limit 的冲突，简化逻辑
+    let real_loops = if time_limit_minutes.is_some() && loops != 1 {
+        // 同时指定了时间限制和循环次数，冲突
+        return Err("Error: Cannot specify both loop count (-l/--loops) and time limit (-t/--time) simultaneously.".into());
+    } else if time_limit_minutes.is_some() {
+        // 只指定了时间限制
+        log_info_fmt!("Time limit mode: {} seconds", time_limit_minutes.map(|m| (m * 60.0) as u64).unwrap_or(0));
+        0  // 0 表示无限循环，直到时间到达
+    } else {
+        // 只指定了循环次数（或使用默认值）
+        log_info_fmt!("Loop count mode: {} iteration(s)", loops);
+        loops
     };
 
     let core_usage = cpu_utils::calculate_core_usage(requested_cores);
@@ -303,13 +287,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             if elapsed >= limit_duration {
                 logger::log_info(&format!("Time limit of {} minutes ({} seconds) reached", limit_minutes, limit_seconds));
-                if let Ok(mut monitor) = ecc_monitor.lock() {
-                    if let Err(e) = monitor.check_ecc_errors() {
-                        logger::log_error(&format!("ECC check failed: {}", e));
-                    }
-                } else {
-                    logger::log_error("Could not acquire lock on EccMonitor for pattern check.");
-                }
+                check_ecc_errors(&ecc_monitor);
                 break;
             }
         }

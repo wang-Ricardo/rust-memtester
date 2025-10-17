@@ -55,7 +55,6 @@ pub fn calculate_core_usage(requested_cores: Option<usize>) -> Vec<usize> {
 /// # Returns
 /// `true` on success, `false` on failure.
 #[allow(dead_code)]
-#[allow(dead_code)]
 pub fn bind_thread_to_core(core_id: usize) -> bool {
     if let Some(core_ids) = core_affinity::get_core_ids() {
         if let Some(core) = core_ids.into_iter().find(|c| c.id == core_id) {

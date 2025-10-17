@@ -1,16 +1,18 @@
 // 导入clap库的Parser trait，用于自动生成命令行解析器
 use clap::Parser;
-
-// 导入系统信息库，用于获取内存信息
-use sysinfo::{System, SystemExt};
 use std::process;
+
+#[cfg(target_os = "linux")]
+use std::fs;
+#[cfg(target_os = "linux")]
+use std::io::Read;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
     // -m 或 --memory 选项，指定要测试的内存大小
     #[clap(short = 'm', long = "memory", value_parser = parse_memory_size,
-            help = "Memory size to test, Default unit is MB(default: total memory - 8GB)")]
+            help = "Memory size to test, Default unit is MB (default: MemFree - DMA_free - HighReserve - MemFree/500)")]
     mem_to_test: Option<u64>,
 
     // -l 或 --loops 选项，指定测试循环次数
@@ -35,43 +37,109 @@ pub struct Args {
     pattern: Option<usize>,
 
     #[clap(short = 'L', long = "log-path",
-           default_value = "/var/log/cnit/",
+           default_value = "/var/log/",
            help = "Path to save log file path(default: /var/log/cnit/memtester.log)")]
     log_path: Option<String>,
 }
 
+#[cfg(target_os = "linux")]
 fn get_default_memory_size() -> usize {
-    let mut system = System::new_all();
-    system.refresh_memory();
+    // 读取 /proc/meminfo 的内容
+    let meminfo = fs::read_to_string("/proc/meminfo").unwrap_or_default();
 
-    // 获取空闲内存（字节）
-    let free_memory = system.get_free_memory() * 1024; // sysinfo返回KB，转换为字节
+    // 提取 MemFree (kB)
+    let mut mem_free_kb: u64 = 0;
+    for line in meminfo.lines() {
+        if line.starts_with("MemFree:") {
+            // 形如: MemFree:       123456 kB
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                if let Ok(v) = parts[1].parse::<u64>() { mem_free_kb = v; }
+            }
+            break;
+        }
+    }
 
-    // 保留8GB给系统（8 * 1024 * 1024 * 1024 字节）
-    let reserved_memory = 8 * 1024 * 1024 * 1024u64;
+    // 页大小（字节）
+    let page_size: u64 = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as u64 };
+    let page_size = if page_size > 0 { page_size } else { 4096 };
 
-    // 计算可用内存，确保不会小于1GB
-    let available_memory = if free_memory > reserved_memory {
-        free_memory - reserved_memory
-    } else {
-        // 如果总内存小于等于4GB，使用总内存的75%
-        (free_memory * 3) / 4
-    };
+    // 解析 /proc/zoneinfo 获取：
+    // - DMA_free: 累计 zones {DMA,DMA32} 的 nr_free_pages * page_size
+    // - HighReserve: 累计所有 "high" 水位（页数） * page_size
+    let mut dma_free_pages: u64 = 0;
+    let mut high_reserve_pages: u64 = 0;
+    let mut current_zone: Option<String> = None;
 
-    // 确保至少有1GB可用内存
-    let min_memory = 1024 * 1024 * 1024u64; // 1GB
-    let final_memory = available_memory.max(min_memory);
+    if let Ok(mut f) = fs::File::open("/proc/zoneinfo") {
+        let mut content = String::new();
+        let _ = f.read_to_string(&mut content);
+        for raw_line in content.lines() {
+            let line = raw_line.trim();
+            // 记录当前 zone 名
+            if raw_line.contains(", zone") {
+                // 示例: "Node 0, zone      DMA"
+                let after = raw_line.split("zone").nth(1).unwrap_or("").trim();
+                let zone_name = after.split_whitespace().next().unwrap_or("").to_string();
+                current_zone = if zone_name.is_empty() { None } else { Some(zone_name) };
+                continue;
+            }
 
+            // nr_free_pages (仅统计 DMA/DMA32)
+            if line.starts_with("nr_free_pages") {
+                if let Some(zone) = &current_zone {
+                    if zone == "DMA" || zone == "DMA32" {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            if let Ok(pages) = parts[1].parse::<u64>() { dma_free_pages = dma_free_pages.saturating_add(pages); }
+                        }
+                    }
+                }
+                continue;
+            }
 
-    // println!("System memory info:");
-    // println!("  Total memory: {:.2} GB", 
-    //          system.get_total_memory() as f64 / (1024.0 * 1024.0));
-    // println!("  Free memory: {:.2} GB", 
-    //          free_memory as f64 / (1024.0 * 1024.0 * 1024.0));
-    // println!("  Available for testing: {:.2} GB", 
-    //          final_memory as f64 / (1024.0 * 1024.0 * 1024.0));
+            // 累计所有 zone 的 high 水位（页）
+            if line.starts_with("high") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    if let Ok(pages) = parts[1].parse::<u64>() { high_reserve_pages = high_reserve_pages.saturating_add(pages); }
+                }
+                continue;
+            }
+        }
+    }
 
-    final_memory as usize
+    let mem_free_bytes = mem_free_kb.saturating_mul(1024);
+    let dma_free_bytes = dma_free_pages.saturating_mul(page_size);
+    let high_reserve_bytes = high_reserve_pages.saturating_mul(page_size);
+    
+    // 线性保留策略：每 128GB 保留 1GB，最小 4GB
+    // 计算公式：reserve = max(4GB, MemFree / 128GB * 1GB)
+    // 示例：
+    //   64GB   -> 0.5GB -> 保留 4GB (最小值)
+    //   128GB  -> 1GB   -> 保留 4GB (最小值)
+    //   256GB  -> 2GB   -> 保留 4GB (最小值)
+    //   512GB  -> 4GB   -> 保留 4GB
+    //   1TB    -> 8GB   -> 保留 8GB
+    //   3TB    -> 24GB  -> 保留 24GB
+    let gb_128 = 128 * 1024 * 1024 * 1024u64;  // 128GB
+    let gb_1 = 1024 * 1024 * 1024u64;          // 1GB
+    let gb_4 = 4 * 1024 * 1024 * 1024u64;      // 4GB (最小保留)
+    
+    let calculated_reserve = (mem_free_bytes / gb_128) * gb_1;  // 每128GB保留1GB
+    let safety_bytes = calculated_reserve.max(gb_4);             // 最小4GB
+
+    // 计算最终可用值
+    let mut test_bytes = mem_free_bytes
+        .saturating_sub(dma_free_bytes)
+        .saturating_sub(high_reserve_bytes)
+        .saturating_sub(safety_bytes);
+
+    // 至少保证 1 GiB
+    let one_gib: u64 = 1024 * 1024 * 1024;
+    if test_bytes < one_gib { test_bytes = one_gib; }
+
+    test_bytes as usize
 }
 
 fn parse_memory_size(s: &str) -> Result<u64, String> {
@@ -133,7 +201,7 @@ pub fn usage(e: &String) -> ! {
     eprintln!("Error: {}", e);
     eprintln!();
     eprintln!("Usage examples:");
-    eprintln!("  # Test with default memory (total - 4GB) for 30 minutes");
+    eprintln!("  # Test with default memory (MemFree - DMA_free - HighReserve - MemFree/500) for 30 minutes");
     eprintln!("  cargo run -- --time 30");
     eprintln!();
     eprintln!("  # Test 1GB memory for 10 loops");
